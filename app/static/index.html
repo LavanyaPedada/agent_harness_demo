@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Analytics Agent · Live</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">▎</span>
+      <h1>Analytics Agent</h1>
+      <span class="env-tag">temporal · langgraph · qwen2.5</span>
+    </div>
+    <div class="meta">
+      <span id="wf-label" class="wf-label">no workflow</span>
+      <span id="status-badge" class="badge badge-idle">idle</span>
+      <button id="auto-stop-btn" class="worker-btn worker-arm" type="button" title="When weather_fetch begins, automatically stop the worker so you can show Temporal recovery. Click before sending your question.">⚙ Auto-stop @ weather_fetch</button>
+      <button id="worker-stop-btn" class="worker-btn worker-stop" type="button" title="Stop the worker — Temporal keeps the workflow alive">Stop Worker</button>
+      <button id="worker-start-btn" class="worker-btn worker-start" type="button" title="Start the worker — Temporal hands the in-flight activity back">Start Worker</button>
+      <button id="trace-toggle" class="trace-toggle" type="button" aria-pressed="false">View Trace</button>
+      <button id="usage-toggle" class="trace-toggle" type="button" aria-pressed="false" title="Show LLM token usage and latency">LLM Usage</button>
+      <a id="temporal-link" href="http://localhost:8233" target="_blank" rel="noopener">Temporal UI ↗</a>
+    </div>
+  </header>
+
+  <section id="health-strip" class="health">
+    <span class="hk"><span class="dot" id="health-temporal"></span>Temporal</span>
+    <span class="hk"><span class="dot" id="health-ollama"></span>Ollama</span>
+    <span class="hk">Memory: <strong id="health-memory">–</strong> lesson(s)</span>
+    <span class="hk">Skills: <strong id="health-skills">–</strong></span>
+    <button id="reset-mem-btn" class="reset-btn" title="Wipe AGENT.md + learned_patterns.json">reset memory</button>
+    <button id="reload-skills-btn" class="reset-btn" title="Stop+start the worker so newly-dropped skill files in src/skills/ get registered">↻ reload skills</button>
+    <label class="hk toggle" title="Block on `requires_approval` skills until you click Approve in the chat.">
+      <input type="checkbox" id="hitl-toggle" /> <span>HITL approval</span>
+    </label>
+    <label class="hk toggle" title="DEMO knob: drop weather_fetch from the initial plan. correlation_analysis fails its validate(); the workflow replans and reinserts weather_fetch.">
+      <input type="checkbox" id="force-fail-toggle" /> <span>Force tool failure</span>
+    </label>
+    <span class="spacer"></span>
+  </section>
+
+  <div id="approval-banner" class="approval-banner hidden">
+    <div class="approval-text">
+      <strong>Approval required</strong> —
+      skill <code id="approval-skill">…</code> is blocked. The workflow is paused until you decide.
+    </div>
+    <div class="approval-actions">
+      <button id="approve-btn" class="ap-btn ap-yes" type="button">Approve</button>
+      <button id="deny-btn" class="ap-btn ap-no" type="button">Deny</button>
+    </div>
+  </div>
+
+  <main class="grid">
+    <!-- LEFT: chat -->
+    <section class="pane chat-pane">
+      <div class="pane-header">
+        <h2>Conversation</h2>
+        <span class="pane-sub">user-facing</span>
+      </div>
+      <div id="chat-log" class="chat-log">
+        <div class="welcome">
+          <p>Ask a question grounded in <code>data\sales.csv</code>.</p>
+          <p class="muted">First question runs the full pipeline (planner → coding agent → weather → correlation → report). Follow-ups answer from the cached state instantly.</p>
+        </div>
+
+        <!-- Plan card: rendered by app.js when a planner event arrives -->
+        <div id="plan-card" class="plan-card hidden">
+          <div class="plan-header">
+            <span class="plan-title">Plan</span>
+            <span class="plan-source" id="plan-source">cached · 5 steps</span>
+          </div>
+          <ol id="plan-steps" class="plan-steps"></ol>
+        </div>
+      </div>
+      <form id="chat-form" class="chat-form">
+        <textarea id="chat-input" placeholder="Type your question…" rows="2"></textarea>
+        <button type="submit" id="chat-send">Send</button>
+      </form>
+    </section>
+
+    <!-- RIGHT: live running trace (hidden by default — toggle via "View Trace") -->
+    <section class="pane trace-pane">
+      <div class="pane-header">
+        <h2>Running Trace</h2>
+        <span class="pane-sub">what the harness is doing right now</span>
+      </div>
+      <div id="trace-log" class="trace-log"></div>
+    </section>
+  </main>
+
+  <div id="usage-panel" class="usage-panel hidden">
+    <div class="usage-header">
+      <strong>LLM Usage</strong>
+      <span class="usage-sub" id="usage-provider">–</span>
+      <button id="usage-close" type="button" title="close">×</button>
+    </div>
+    <div class="usage-stats">
+      <div><span class="lbl">Calls</span><span id="u-calls">0</span></div>
+      <div><span class="lbl">Prompt tok</span><span id="u-prompt">0</span></div>
+      <div><span class="lbl">Completion tok</span><span id="u-completion">0</span></div>
+      <div><span class="lbl">Total tok</span><span id="u-total">0</span></div>
+      <div><span class="lbl">Total latency</span><span id="u-latency">0s</span></div>
+      <div><span class="lbl">Avg / call</span><span id="u-avg">–</span></div>
+    </div>
+    <div class="usage-recent">
+      <div class="lbl" style="margin-bottom:4px">Last 10 calls (newest first)</div>
+      <ol id="u-recent"></ol>
+    </div>
+  </div>
+
+  <footer class="bottombar">
+    <div class="skills">
+      <span class="footer-label">SKILLS</span>
+      <span class="skill" data-skill="csv_loader">csv_loader</span>
+      <span class="skill" data-skill="trend_analysis">trend_analysis</span>
+      <span class="skill" data-skill="weather_fetch">weather_fetch</span>
+      <span class="skill" data-skill="correlation_analysis">correlation_analysis</span>
+      <span class="skill" data-skill="report_generator">report_generator</span>
+    </div>
+    <div class="counters">
+      <span class="footer-label">ATTEMPTS</span><span id="ctr-attempts">0</span>
+      <span class="footer-label">HTTP</span><span id="ctr-http">0</span>
+      <span class="footer-label">TOKENS</span><span id="ctr-tokens">–</span>
+    </div>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
